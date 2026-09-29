@@ -73,7 +73,8 @@ relecture de la colonne décimale. Effet : exception (erreur 500 dans
 l'interface) au lieu d'un paiement. Contournement : le dossier `micro` laisse
 ces trimestres déclarés mais non payés et le signale au chargement. À
 corriger dans `partiduo-urssaf` (arrondir au centime avant l'ordre de
-paiement).
+paiement). *Levé le 29 septembre 2026* (partiduo-urssaf 09c65f9 : montant ramené au
+centime) ; le dossier `micro` paie désormais tous ses trimestres.
 
 Pendant la construction, la compilation du cœur a été cassée quelques minutes
 par un travail en cours d'un autre agent (`Calculator` inconnu dans

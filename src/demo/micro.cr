@@ -55,8 +55,6 @@ module PartiduoDemo
       {"CLI-LOCALOIRE", "Loire Vélo Location SARL", "business", "852630144", "atelier@loire-velo-location.test", "Quai Ligny"},
     ]
 
-    @unpaid = [] of Time
-
     def load : Nil
       if Api::Micro.natures(system).empty?
         Api::Micro.load_defaults(system)
@@ -88,10 +86,6 @@ module PartiduoDemo
       end
       say "Recettes, achats et déclarations jusqu'au #{real_today.to_s("%d/%m/%Y")}"
       say "#{agenda.run} opérations datées exécutées"
-      unless @unpaid.empty?
-        say "Télépaiement URSSAF non enregistré (anomalie connue, doc/ETAT.adoc) : " \
-            "#{@unpaid.map(&.to_s("%m/%Y")).join(", ")}"
-      end
       pending_receipts
     end
 
@@ -172,13 +166,7 @@ module PartiduoDemo
       starts_on = date(current, quarter * 3 - 2, 1)
       agenda.at(starts_on + 3.months + 19.days) do
         ok(Urssaf::Api.declare(actor, starts_on), "déclaration URSSAF du #{starts_on.to_s("%m/%Y")}")
-        begin
-          ok(Urssaf::Api.pay(actor, starts_on), "télépaiement URSSAF du #{starts_on.to_s("%m/%Y")}")
-        rescue Marten::DB::Errors::InvalidRecord
-          # Reste dû à plus de deux décimales refusé par partiduo-urssaf
-          # (doc/ETAT.adoc, « Anomalies relevées ») : trimestre laissé à payer.
-          @unpaid << starts_on
-        end
+        ok(Urssaf::Api.pay(actor, starts_on), "télépaiement URSSAF du #{starts_on.to_s("%m/%Y")}")
       end
     end
 
