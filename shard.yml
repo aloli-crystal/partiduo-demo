@@ -1,0 +1,58 @@
+name: partiduo-demo
+version: 0.1.0
+
+description: |
+  Distribution locale de démonstration de Partiduo : le cœur, l'interface
+  Bulma et les extensions composés en une seule application, avec des
+  dossiers fictifs complets (société commerciale, micro-entrepreneur,
+  profession libérale) chargés par le contrat Partiduo::Api et servis en
+  local, services externes simulés.
+
+authors:
+  - Philippe Nénert <it+claude.ai@aloli.fr>
+
+crystal: ">= 1.19.1"
+
+license: AGPL-3.0-or-later
+
+targets:
+  # Charge un dossier fictif puis le sert (scripts/demo).
+  partiduo-demo:
+    main: src/main.cr
+  # Ligne de commande Marten de la distribution (migrate, provision…).
+  partiduo-demo-manage:
+    main: manage.cr
+
+dependencies:
+  # Le cœur : registre, événements et contrat Partiduo::Api.
+  partiduo:
+    path: ../partiduo-app
+  # L'interface Bulma, qui monte les interfaces des extensions.
+  partiduo-ui-bulma:
+    path: ../partiduo-ui-bulma
+  # Extensions composées (voir README.adoc, « Extensions »).
+  partiduo-document:
+    path: ../partiduo-document
+  partiduo-einvoicing:
+    path: ../partiduo-einvoicing
+  partiduo-superpdp:
+    path: ../partiduo-superpdp
+  partiduo-esalink:
+    path: ../partiduo-esalink
+  partiduo-choruspro:
+    path: ../partiduo-choruspro
+  partiduo-teledec:
+    path: ../partiduo-teledec
+  partiduo-urssaf:
+    path: ../partiduo-urssaf
+  partiduo-crm:
+    path: ../partiduo-crm
+  partiduo-modeles:
+    path: ../partiduo-modeles
+  marten:
+    path: ../../marten
+
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    version: "~> 1.6"

@@ -1,0 +1,13 @@
+# Configuration d'Ameba pour partiduo-demo.
+Globs:
+  - "**/*.cr"
+  - "!lib"
+
+Excluded:
+  - lib/
+  - tmp/
+
+# Les chargements de dossiers fictifs sont de longues listes d'opérations
+# datées : la complexité mesurée y reflète le scénario, pas une logique.
+Metrics/CyclomaticComplexity:
+  MaxComplexity: 20

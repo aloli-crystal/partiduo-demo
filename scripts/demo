@@ -1,0 +1,229 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# scripts/demo — lance en local les dossiers fictifs de Partiduo :
+#
+#   1. dépendances (shards install) et compilation de bin/partiduo-demo si
+#      les sources ont changé ;
+#   2. bases PostgreSQL partiduo_demo_<dossier> créées (ou vidées avec
+#      --reset ; un nom sans « demo » est refusé) ;
+#   3. identifiants de test générés et écrits dans demo-identifiants.txt
+#      (non versionné) ;
+#   4. un processus par dossier : migrations, provisionnement, chargement
+#      des données par le contrat Partiduo::Api, puis serveur local, services
+#      externes simulés.
+#
+# Adresses : http://<dossier>.partiduo.localhost:<port>/ (atelier 8300,
+# micro 8301, liberal 8302 par défaut). Arrêt : Ctrl-C, ou `scripts/demo
+# stop` depuis un autre terminal (crée le fichier d'arrêt demo.stop).
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT"
+
+DOSSIERS_ALL="atelier micro liberal"
+DOSSIERS="$DOSSIERS_ALL"
+BASE_PORT=8300
+RESET=0
+BUILD=1
+STOP_FILE="$ROOT/demo.stop"
+STATE_DIR="$ROOT/tmp/demo"
+CREDENTIALS="$ROOT/demo-identifiants.txt"
+PG_SOCKET="${PGHOST:-/tmp}"
+
+usage() {
+  cat <<'USAGE'
+Usage : scripts/demo [options]          lance les dossiers de démonstration
+        scripts/demo stop               arrête une démonstration en cours
+
+Options :
+  --reset             vide les bases et recharge les dossiers (nouveaux identifiants)
+  --only LISTE        dossiers à lancer, parmi atelier,micro,liberal (défaut : tous)
+  --port N            premier port (défaut 8300 ; atelier, micro, liberal à la suite)
+  --no-build          ne recompile pas bin/partiduo-demo
+  -h, --help          cette aide
+USAGE
+}
+
+die() {
+  echo "scripts/demo : $*" >&2
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    stop)
+      touch "$STOP_FILE"
+      echo "Arrêt demandé ($STOP_FILE)."
+      exit 0
+      ;;
+    --reset) RESET=1 ;;
+    --no-build) BUILD=0 ;;
+    --only) [ $# -ge 2 ] || die "--only : liste manquante"; DOSSIERS=$(printf '%s' "$2" | tr ',' ' '); shift ;;
+    --only=*) DOSSIERS=$(printf '%s' "${1#*=}" | tr ',' ' ') ;;
+    --port) [ $# -ge 2 ] || die "--port : valeur manquante"; BASE_PORT="$2"; shift ;;
+    --port=*) BASE_PORT="${1#*=}" ;;
+    -h | --help) usage; exit 0 ;;
+    *) usage >&2; exit 1 ;;
+  esac
+  shift
+done
+
+case "$BASE_PORT" in '' | *[!0-9]*) die "port invalide : $BASE_PORT" ;; esac
+for dossier in $DOSSIERS; do
+  case " $DOSSIERS_ALL " in *" $dossier "*) ;; *) die "dossier inconnu : $dossier ($DOSSIERS_ALL)" ;; esac
+done
+
+# --- Prérequis -------------------------------------------------------------------
+
+command -v crystal >/dev/null 2>&1 || die "crystal introuvable (Crystal 1.19.1 requis)"
+command -v shards >/dev/null 2>&1 || die "shards introuvable"
+for tool in createdb dropdb psql; do
+  command -v "$tool" >/dev/null 2>&1 || die "$tool introuvable (clients PostgreSQL requis)"
+done
+[ -S "$PG_SOCKET/.s.PGSQL.5432" ] || die "PostgreSQL injoignable par le socket $PG_SOCKET/.s.PGSQL.5432 (PGHOST)"
+export PGHOST="$PG_SOCKET"
+export SKIP_MARTEN_CLI_PRECOMPILATION=1
+
+# --- Compilation -----------------------------------------------------------------
+
+if [ ! -d lib ] || [ shard.yml -nt shard.lock ] || [ ! -f lib/.shards.info ]; then
+  echo "== Dépendances (shards install)"
+  shards install
+fi
+if [ "$BUILD" = 1 ]; then
+  # Sources de la démonstration et des dépôts composés (dépendances path:).
+  if [ ! -x bin/partiduo-demo ] || [ -n "$(find -L src config lib/partiduo*/src lib/partiduo*/ui lib/partiduo*/config \
+    -newer bin/partiduo-demo -name '*.cr' 2>/dev/null | head -n 1)" ]; then
+    echo "== Compilation de bin/partiduo-demo (quelques minutes la première fois)"
+    mkdir -p bin
+    crystal build src/main.cr -o bin/partiduo-demo --no-debug
+  fi
+fi
+[ -x bin/partiduo-demo ] || die "bin/partiduo-demo absent (relancez sans --no-build)"
+
+# --- Identifiants et clés ----------------------------------------------------------
+
+mkdir -p "$STATE_DIR" "$ROOT/tmp/media" "$ROOT/tmp/logs"
+
+random_word() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | cut -c1-"$1"
+  else
+    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1"
+  fi
+}
+
+# Mot de passe de test : 20 caractères, majuscule, minuscule et chiffre
+# garantis (politique du cœur).
+new_password() {
+  printf 'Demo-%s-%s7\n' "$(random_word 8)" "$(random_word 6)"
+}
+
+SECRET_FILE="$STATE_DIR/secret.key"
+if [ ! -s "$SECRET_FILE" ]; then
+  (umask 077 && printf '%s\n' "$(random_word 40)$(random_word 24)" >"$SECRET_FILE")
+fi
+MARTEN_SECRET_KEY=$(cat "$SECRET_FILE")
+export MARTEN_SECRET_KEY
+
+users_of() {
+  case "$1" in
+    atelier) echo "gerante@atelier.demo.test comptable@atelier.demo.test commercial@atelier.demo.test" ;;
+    micro) echo "nicolas@micro.demo.test" ;;
+    liberal) echo "camille@liberal.demo.test" ;;
+  esac
+}
+
+# Mot de passe d'un utilisateur lu dans demo-identifiants.txt.
+password_of() {
+  [ -f "$CREDENTIALS" ] || return 0
+  awk -v email="$1" '$1 == email { print $2; exit }' "$CREDENTIALS"
+}
+
+database_exists() {
+  psql -Atqc "SELECT 1 FROM pg_database WHERE datname = '$1'" postgres 2>/dev/null | grep -q 1
+}
+
+rm -f "$STOP_FILE"
+PIDS=""
+PORT=$BASE_PORT
+LINES=""
+for dossier in $DOSSIERS; do
+  database="partiduo_demo_$dossier"
+  case "$database" in *demo*) ;; *) die "base refusée : $database" ;; esac
+  printf '%s' "$database" | grep -Eq '^[a-z_][a-z0-9_]*$' || die "nom de base invalide : $database"
+
+  reset_this=$RESET
+  passwords=""
+  for email in $(users_of "$dossier"); do
+    password=$(password_of "$email")
+    if [ -z "$password" ]; then reset_this=1; fi
+  done
+  if [ ! -f "$STATE_DIR/$database.loaded" ]; then reset_this=1; fi
+  if [ "$reset_this" = 1 ]; then
+    echo "== $dossier : base $database recréée"
+    dropdb --if-exists "$database"
+    createdb --encoding=UTF8 "$database"
+    rm -f "$STATE_DIR/$database.loaded"
+    rm -rf "$ROOT/tmp/media/$dossier"
+    for email in $(users_of "$dossier"); do
+      password=$(new_password)
+      if [ -f "$CREDENTIALS" ]; then
+        awk -v email="$email" '$1 != email' "$CREDENTIALS" >"$CREDENTIALS.tmp" && mv "$CREDENTIALS.tmp" "$CREDENTIALS"
+      fi
+      (umask 077 && printf '%s %s %s\n' "$email" "$password" "$dossier" >>"$CREDENTIALS")
+    done
+  elif ! database_exists "$database"; then
+    die "base $database absente : relancez avec --reset"
+  fi
+  for email in $(users_of "$dossier"); do
+    passwords="${passwords:+$passwords,}$email=$(password_of "$email")"
+  done
+
+  rm -f "$STATE_DIR/$dossier.ready"
+  flags=""
+  [ "$reset_this" = 1 ] && flags="--reset"
+  # shellcheck disable=SC2086 # $flags : zéro ou une option
+  DATABASE_URL="postgres:///$database?host=$PG_SOCKET" PARTIDUO_MEDIA_ROOT="$ROOT/tmp/media/$dossier" \
+    DEMO_PASSWORDS="$passwords" DEMO_STATE_DIR="$STATE_DIR" MARTEN_ENV=development \
+    bin/partiduo-demo --dossier="$dossier" --port="$PORT" --stop-file="$STOP_FILE" \
+    --ready-file="$STATE_DIR/$dossier.ready" $flags &
+  PIDS="$PIDS $!"
+  LINES="$LINES
+  http://$dossier.partiduo.localhost:$PORT/"
+  PORT=$((PORT + 1))
+done
+
+stop_all() {
+  touch "$STOP_FILE"
+  for pid in $PIDS; do wait "$pid" 2>/dev/null || true; done
+  rm -f "$STOP_FILE"
+  echo "== Démonstration arrêtée."
+}
+trap 'stop_all; exit 0' INT TERM
+
+# Attente des serveurs (le premier chargement prend une à deux minutes).
+for dossier in $DOSSIERS; do
+  while [ ! -f "$STATE_DIR/$dossier.ready" ]; do
+    alive=0
+    for pid in $PIDS; do kill -0 "$pid" 2>/dev/null && alive=1; done
+    [ "$alive" = 1 ] || { echo "scripts/demo : un dossier n'a pas démarré (voir ci-dessus)." >&2; stop_all; exit 1; }
+    [ -f "$STOP_FILE" ] && { stop_all; exit 0; }
+    sleep 1
+  done
+done
+
+cat <<SUMMARY
+
+== Démonstration prête :$LINES
+
+Identifiants de test (fichier $CREDENTIALS, non versionné) :
+$(awk '{ printf "  %-32s %s   (%s)\n", $1, $2, $3 }' "$CREDENTIALS")
+
+Services externes simulés (plateforme agréée, TELEDEC, Chorus Pro, URSSAF,
+courriel) : rien ne sort de ce poste. Arrêt : Ctrl-C ou « scripts/demo stop ».
+SUMMARY
+
+for pid in $PIDS; do wait "$pid" 2>/dev/null || true; done
+rm -f "$STOP_FILE"

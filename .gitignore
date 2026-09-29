@@ -1,0 +1,13 @@
+.env
+.icr_*
+.vscode/
+.DS_Store
+*.dwarf
+/.shards/
+/lib/
+/bin/
+/tmp/
+/media/
+/.bundle/
+/demo-identifiants.txt
+/demo.stop
