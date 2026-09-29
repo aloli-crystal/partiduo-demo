@@ -358,8 +358,7 @@ module PartiduoDemo
         entry = sale_entry(current) || next
         # Un avoir déjà lettré avec la facture (lettrage partiel) : le
         # lettrage est repris pour réunir facture, avoir et encaissement.
-        entry.lines.each do |item|
-          next unless item.card_id == current.customer_card_id
+        entry.lines.select(&.card_id.==(current.customer_card_id)).each do |item|
           item.matching_id.try { |matching| ok(Acc.unmatch(actor, matching), "reprise du lettrage de #{current.number}") }
         end
         entry = Acc.entry(actor, entry.id)
@@ -659,7 +658,7 @@ module PartiduoDemo
 
     private def reminders : Nil
       proposed = Inv.propose_reminders(actor, today)
-      proposed.first(2).each do |reminder|
+      proposed.first(1).each do |reminder|
         email = Inv.document(actor, reminder.document_id).customer.email
         next if email.empty?
         ok(Inv.send_reminder(actor, reminder.id, Inv::SendInput.new([email])), "relance de #{reminder.document_number}")

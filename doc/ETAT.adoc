@@ -1,0 +1,80 @@
+= partiduo-demo — état
+:toc: left
+:toc-title: Table des matières
+
+== Ce qui existe (29 septembre 2026)
+
+* Distribution locale composant le cœur, l'interface Bulma et les neuf
+  extensions (DOCUMENT, EINV, SUPERPDP, ESALINK, CHORUSPRO, TELEDEC, URSSAF,
+  CRM, MODELES) en dépendances `path:` ; `shard.override.yml` sur le modèle
+  des autres dépôts (sources locales de `marten`, `password-policy`, `jose`,
+  `pdf`, et des extensions dont d'autres dépendent). Aucune extension n'est
+  écartée : elles se compilent ensemble.
+* `bin/partiduo-demo` : un processus par dossier, qui migre, provisionne
+  (`Partiduo::Api::Core.provision`), crée les utilisateurs, charge le dossier
+  par le contrat, branche les services simulés et sert l'instance ; arrêt par
+  Ctrl-C ou fichier d'arrêt.
+* `scripts/demo` : dépendances, compilation, bases `partiduo_demo_<dossier>`
+  (refus d'un nom sans « demo »), identifiants générés dans
+  `demo-identifiants.txt`, clé secrète locale (`tmp/demo/secret.key`),
+  lancement et attente des trois serveurs, arrêt.
+* Dossiers `atelier` (SARL au réel, deux exercices), `micro`
+  (micro-entrepreneur) et `liberal` (BNC, 2035).
+* Spec des grands totaux du dossier `atelier`, CI GitHub.
+
+== Décisions
+
+D-DEMO-001 — Provisionnement dans le processus::
+`bin/partiduo-provision` produit des fichiers de service (nginx, systemd,
+certificat) inutiles en local et remet une invitation à accepter par
+l'interface. La démonstration appelle le même `Partiduo::Api::Core.provision`
+que la commande `provision`, puis crée les utilisateurs avec leur mot de
+passe de test (`Partiduo::Api::Auth.create_user`).
+
+D-DEMO-002 — Horloge déplacée plutôt que dates saisies::
+Chaque opération s'exécute dans `Partiduo::Config.travel_to(jour)` : les
+règles du cœur (date d'émission d'une facture, échéances, relances, périodes,
+horodatage des flux) s'appliquent comme en usage réel. Les opérations
+postérieures au jour réel ne sont pas jouées. Les télédéclarations sont
+transmises au jour réel (le TELEDEC simulé contrôle l'horodatage de la marque
+blanche, comme le vrai).
+
+D-DEMO-003 — Scénario déterministe::
+Aucun tirage aléatoire : quantités et montants dérivent du rang du mois. Les
+totaux de l'exercice complet (l'année précédente) sont donc fixes ; la spec
+les vérifie au centime (chiffre d'affaires 141 156,00 €).
+
+D-DEMO-004 — TVA sur les débits::
+Le dossier `atelier` a opté pour la TVA sur les débits (paramètre de la
+Facturation) : la TVA des prestations est exigible à la facturation, les CA3
+mensuelles se déduisent des seules écritures de ventes et d'achats.
+
+D-DEMO-005 — Simulateurs des specs des extensions::
+Les doubles (`spec/support/` de `partiduo-einvoicing`, `partiduo-teledec`,
+`partiduo-choruspro`, `partiduo-urssaf`) sont requis depuis `lib/` et
+branchés dans chaque processus ; le transport HTTP d'EINV est remplacé pour
+toute l'instance (SUPERPDP et ESALINK compris), le courriel de la
+Facturation garde les messages en mémoire. Aucun service réel n'est joignable
+depuis une instance de démonstration.
+
+== Anomalies relevées dans d'autres dépôts
+
+Consignées ici, non corrigées (la démonstration ne modifie aucun autre
+dépôt) :
+
+B-DEMO-001 — `partiduo-urssaf` : télépaiement refusé pour un reste dû non entier::
+`Urssaf::Api.pay` lève `Marten::DB::Errors::InvalidRecord` (« Ensure that
+there are no more than 2 decimal places ») quand le reste dû n'est pas un
+montant entier (704,40 €, 694,80 €…), alors que les paiements de 585,00 € et
+702,00 € passent. Le reste dû (`FilingView#remaining`, tiré de
+`contributions_total`) arrive à `Payment.create!` avec une échelle
+supérieure à deux décimales ; hypothèse : conversion par un flottant à la
+relecture de la colonne décimale. Effet : exception (erreur 500 dans
+l'interface) au lieu d'un paiement. Contournement : le dossier `micro` laisse
+ces trimestres déclarés mais non payés et le signale au chargement. À
+corriger dans `partiduo-urssaf` (arrondir au centime avant l'ordre de
+paiement).
+
+Pendant la construction, la compilation du cœur a été cassée quelques minutes
+par un travail en cours d'un autre agent (`Calculator` inconnu dans
+`accounting/services/vat_returns.cr`) ; résolu de lui-même, sans suite.

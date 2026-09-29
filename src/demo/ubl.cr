@@ -22,7 +22,7 @@ module PartiduoDemo
             <cac:Item><cbc:Name>#{x(label)}</cbc:Name><cac:ClassifiedTaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>20.00</cbc:Percent><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:ClassifiedTaxCategory></cac:Item>
             <cac:Price><cbc:PriceAmount currencyID="EUR">#{f(price)}</cbc:PriceAmount></cac:Price>
           </cac:InvoiceLine>
-        XML
+          XML
       end
       vat_id = "FR%02d%s" % {(12 + 3 * (supplier.siren.to_i64 % 97)) % 97, supplier.siren}
       <<-XML.to_slice
