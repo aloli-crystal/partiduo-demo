@@ -99,6 +99,13 @@ if [ "$BUILD" = 1 ]; then
     mkdir -p bin
     crystal build src/main.cr -o bin/partiduo-demo --no-debug
   fi
+  # Convertisseur PDF des modèles AsciiDoc et Markdown (partiduo-modeles),
+  # cherché par le serveur à côté de son exécutable.
+  if [ ! -x bin/partiduo-modeles-pdf ] || [ -n "$(find -L lib/partiduo-modeles/src lib/asciicrystal*/src \
+    -newer bin/partiduo-modeles-pdf -name '*.cr' 2>/dev/null | head -n 1)" ]; then
+    echo "== Compilation de bin/partiduo-modeles-pdf"
+    crystal build lib/partiduo-modeles/src/partiduo-modeles/pdf.cr -o bin/partiduo-modeles-pdf --no-debug
+  fi
 fi
 [ -x bin/partiduo-demo ] || die "bin/partiduo-demo absent (relancez sans --no-build)"
 
@@ -186,7 +193,7 @@ for dossier in $DOSSIERS; do
   [ "$reset_this" = 1 ] && flags="--reset"
   # shellcheck disable=SC2086 # $flags : zéro ou une option
   DATABASE_URL="postgres:///$database?host=$PG_SOCKET" PARTIDUO_MEDIA_ROOT="$ROOT/tmp/media/$dossier" \
-    DEMO_PASSWORDS="$passwords" DEMO_STATE_DIR="$STATE_DIR" MARTEN_ENV=development \
+    DEMO_PASSWORDS="$passwords" DEMO_STATE_DIR="$STATE_DIR" MARTEN_ENV=development PARTIDUO_MODELES_PDF=auto \
     bin/partiduo-demo --dossier="$dossier" --port="$PORT" --stop-file="$STOP_FILE" \
     --ready-file="$STATE_DIR/$dossier.ready" $flags &
   PIDS="$PIDS $!"
