@@ -37,7 +37,7 @@ module PartiduoDemo
         "Recettes et dépenses ventilées par rubrique de la 2035 (part privée du véhicule), livre-journal",
         "Immobilisations et amortissements (table de massage, ordinateur), 2035-A et 2035-B, édition PDF",
         "TELEDEC simulé (/ext/TELEDEC/) : liasse BNC de l'exercice précédent transmise et accusée",
-        "Paramètres de la profession libérale : interface du dossier, « Recettes et dépenses » ou « Comptabilité », pour tous ses utilisateurs",
+        "Préférences de chaque utilisateur (menu de l'utilisateur) : « Recettes et dépenses » ou « Comptabilité », gardée d'une session à l'autre",
       ]
     end
 
