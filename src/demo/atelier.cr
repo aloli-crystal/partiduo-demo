@@ -40,6 +40,8 @@ module PartiduoDemo
       [
         "Tableau de bord : chiffre d'affaires, trésorerie, « À traiter » (relances, justificatifs, factures reçues)",
         "Devis et factures (menu Facturation) : devis accepté → facture d'acompte → facture finale, avoirs, relances",
+        "Bons à facturer (menu Facturation) : Décoration Val de Loire, client livré plusieurs fois par mois et facturé " \
+        "en fin de mois (facture récapitulative) ; encours maximum HT sur sa fiche, proche du plafond",
         "Comptabilité : journaux, balance, grand livre, lettrage, rapprochement bancaire, TVA (CA3 mensuelles closes)",
         "Analytique (activités), stock (dépôt de l'atelier), justificatifs à traiter (tickets photographiés)",
         "Extensions : CRM (/ext/CRM/pipeline), modèles de factures (/ext/MODELES/), EINV (/ext/EINV/), " \
@@ -69,6 +71,12 @@ module PartiduoDemo
 
     record Party, code : String, name : String, nature : String, siren : String, email : String, line1 : String,
       postcode : String, city : String
+
+    # Client livré plusieurs fois par mois, facturé en fin de mois (facture
+    # récapitulative, art. 289-I-3 du CGI) avec un encours maximum HT.
+    MONTHLY_CUSTOMER = Party.new("CLI-DECOVAL", "Décoration Val de Loire SARL", "business", "518400007",
+      "achats@deco-valdeloire.test", "18 avenue de Grammont", "37000", "Tours")
+    MONTHLY_CREDIT_LIMIT = "4200"
 
     CUSTOMERS = [
       Party.new("CLI-MOREAU", "Claire Moreau", "individual", "", "claire.moreau@exemple.test", "8 allée des Tilleuls", "37000", "Tours"),
@@ -162,6 +170,13 @@ module PartiduoDemo
           vat_number: party.siren.empty? || public_party ? nil : vat_number(party.siren),
           address: address(party.line1, party.postcode, party.city))), "client #{party.code}")
       end
+      monthly = MONTHLY_CUSTOMER
+      decoval = ok(Cards.create_card(system, Cards::CardInput.new(category_id: category("CUSTOMER"), name: monthly.name,
+        code: monthly.code, siren: monthly.siren, customer_nature: monthly.nature, email: monthly.email,
+        vat_number: vat_number(monthly.siren), address: address(monthly.line1, monthly.postcode, monthly.city))),
+        "client #{monthly.code}")
+      ok(Inv.update_customer_billing(actor, decoval.id, Inv::CustomerBillingInput.new("monthly", d(MONTHLY_CREDIT_LIMIT))),
+        "facturation mensuelle de #{monthly.code}")
       ok(Cards.create_card(system, Cards::CardInput.new(category_id: category("CUSTOMER"), name: Simulators::PUBLIC_NAME,
         code: "CLI-VALBRENNE", siren: Simulators::PUBLIC_SIRET[0, 9], siret: Simulators::PUBLIC_SIRET, customer_nature: "public",
         email: "factures@val-de-brenne.test", address: address("Place de la Mairie", "37190", "Val-de-Brenne"))), "client public")
@@ -255,6 +270,39 @@ module PartiduoDemo
       agenda.at(at.call(14)) { fuel_ticket(current, month, index) }
 
       sales_month(current, month, index)
+      monthly_deliveries(current, month)
+    end
+
+    # Trois derniers mois de l'exercice en cours : trois livraisons par mois
+    # à Décoration Val de Loire (étagères suivies en stock, pose non suivie),
+    # fin de mois planifiée (`month_end`, comme la tâche quotidienne de
+    # l'instance) ; la facture récapitulative de l'avant-dernier mois est
+    # émise et envoyée d'un clic le 1er, puis réglée ; celle du mois dernier
+    # reste proposée dans « À traiter » ; les bons du mois en cours restent à
+    # facturer.
+    private def monthly_deliveries(current : Int32, month : Int32) : Nil
+      return unless current == year
+      age = real_today.month - month
+      return unless 0 <= age <= 2
+      customer = card(MONTHLY_CUSTOMER.code)
+      {4, 13, 21}.each_with_index do |day, rank|
+        agenda.at(date(current, month, day)) do
+          draft = ok(Inv.create_document(actor, Inv::DocumentInput.new(kind: "delivery_note", customer_card_id: customer.id,
+            lines: [line("ETAG", 3), line("POSE", 4)], notes: "Livraison n° #{rank + 1} du mois", operation_category: "mixed")),
+            "bon de livraison pour #{customer.code}")
+          ok(Inv.issue(actor, draft.id, Inv::IssueInput.new(today)), "émission du bon de livraison")
+        end
+      end
+      return if age == 0
+      agenda.at(date(current, month, 31)) { Inv.month_end(actor, today) }
+      return unless age == 2
+      agenda.at(date(current, month, 31) + 1.day) do
+        Inv.issue_and_send_proposals(actor).each do |result|
+          outcome = ok(result, "émission de la facture récapitulative")
+          distribute_sale(outcome.document)
+          pay_later(outcome.document, 20)
+        end
+      end
     end
 
     # Ventes du mois : quatre factures directes, un devis ; un mois sur

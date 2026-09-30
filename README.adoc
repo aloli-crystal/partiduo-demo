@@ -90,7 +90,10 @@ opérations diverses (paie, à-nouveaux), rapprochements bancaires mensuels,
 CA3 closes avec écriture de liquidation, analytique (activités, clé de
 répartition), stock (dépôt, fabrication, inventaire), justificatifs
 photographiés, CRM, modèles de factures, facturation électronique et Chorus
-Pro simulés, liasse, DAS2 et CA3 télétransmises au TELEDEC simulé.
+Pro simulés, liasse, DAS2 et CA3 télétransmises au TELEDEC simulé ; un client
+livré plusieurs fois par mois (Décoration Val de Loire) et facturé en fin de
+mois : bons de livraison, facture récapitulative émise, celle du mois dernier
+proposée, encours maximum HT proche du plafond.
 
 |`micro` +
 http://micro.partiduo.localhost:8301/
@@ -121,6 +124,10 @@ expert-comptable (profil comptable) et un commercial ; `micro` et
 . *Facturation* : un devis accepté, sa facture d'acompte et sa facture
   finale (acompte déduit) ; un avoir ; le PDF/A-3 Factur-X d'une facture ;
   les relances d'un client en retard (Restaurant La Guinguette).
+. *Bons à facturer* (menu Facturation) : les bons de livraison du mois de
+  Décoration Val de Loire, la facture récapitulative du mois dernier à
+  émettre et envoyer d'un clic ; sur sa fiche, le rythme mensuel et la jauge
+  d'encours HT.
 . *Comptabilité* : journaux, balance (exercice précédent et en cours), grand
   livre d'un client, lettrage, *rapprochement bancaire* (un relevé par
   mois), *TVA* (CA3 mensuelles closes et leur écriture de liquidation),

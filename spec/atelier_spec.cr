@@ -65,4 +65,23 @@ describe PartiduoDemo::Atelier do
     filings.map(&.kind).sort!.should eq(%w[das2 liasse vat_ca3])
     filings.all?(&.status.==("acknowledged")).should be_true
   end
+
+  it "facture en fin de mois le client livré plusieurs fois par mois, sans dépasser son encours maximum HT" do
+    actor = DemoSpec.atelier.actor
+    customer = Partiduo::Api::Cards.card_by_code(actor, PartiduoDemo::Atelier::MONTHLY_CUSTOMER.code) || raise "client absent"
+    billing = Inv.customer_billing(actor, customer.id)
+    billing.monthly?.should be_true
+    billing.credit_limit.should eq(BigDecimal.new(PartiduoDemo::Atelier::MONTHLY_CREDIT_LIMIT))
+    billing.exceeded?.should be_false
+    invoices = Inv.documents(actor, Inv::DocumentQuery.new(kind: "invoice", customer_card_id: customer.id, limit: 50))
+    summary = invoices.find { |invoice| invoice.summary_invoice? && !invoice.draft? }
+    if DemoSpec.atelier.real_today.month >= 3
+      summary = summary || raise "facture récapitulative absente"
+      summary.draft?.should be_false
+      summary.delivery_notes.size.should eq(3)
+      summary.delivery_notes.all? { |note| Inv.document(actor, note.id).status == "invoiced" }.should be_true
+      Acc.entries(actor, Acc::EntryQuery.new(source: "invoice:#{summary.id}")).should_not be_empty
+      Inv.monthly_proposals(actor).map(&.customer_card_id).should contain(customer.id)
+    end
+  end
 end
