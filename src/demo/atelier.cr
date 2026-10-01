@@ -42,7 +42,7 @@ module PartiduoDemo
         "Devis et factures (menu Facturation) : devis accepté → facture d'acompte → facture finale, avoirs, relances",
         "Bons à facturer (menu Facturation) : Décoration Val de Loire, client livré plusieurs fois par mois et facturé " \
         "en fin de mois (facture récapitulative, retour d'une étagère déduit) ; encours maximum HT sur sa fiche",
-        "Paiement rejeté : un chèque impayé (« À traiter », facture de nouveau due, frais refacturés, relance proposée)",
+        "Paiement rejeté : un virement retourné impayé (« À traiter », facture de nouveau due, frais refacturés, relance proposée)",
         "Comptabilité : journaux, balance, grand livre, lettrage, rapprochement bancaire, TVA (CA3 mensuelles closes)",
         "Analytique (activités), stock (dépôt de l'atelier), justificatifs à traiter (tickets photographiés)",
         "Extensions : CRM (/ext/CRM/pipeline), modèles de factures (/ext/MODELES/), EINV (/ext/EINV/), " \
@@ -730,7 +730,7 @@ module PartiduoDemo
       modeles
     end
 
-    # Chèque impayé (D-INV3-007) : le règlement le plus récent d'un client
+    # Virement retourné impayé (D-INV3-007) : le règlement le plus récent d'un client
     # professionnel (hors client mensuel) revient rejeté pour provision
     # insuffisante ; l'encaissement est contre-passé en banque, les frais
     # (15 €) passés en services bancaires et refacturés au client par un
@@ -745,7 +745,7 @@ module PartiduoDemo
       end
       payment = candidates.max_by?(&.paid_on) || return
       ok(Inv.reject_payment(actor, payment.id, Inv::PaymentRejectionInput.new(rejected_on: today,
-        reason: "insufficient_funds", reason_text: "Chèque revenu impayé", fees: d("15"), rebill_fees: true,
+        reason: "insufficient_funds", reason_text: "Virement retourné par la banque du client", fees: d("15"), rebill_fees: true,
         fees_vat_rate_id: rate("HC"))), "rejet du règlement de #{payment.document_number}")
     end
 

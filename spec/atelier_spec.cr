@@ -93,7 +93,7 @@ describe PartiduoDemo::Atelier do
     end
   end
 
-  it "enregistre un chèque impayé : facture de nouveau due, contre-passation, frais refacturés, relance proposée" do
+  it "enregistre un virement retourné impayé : facture de nouveau due, contre-passation, frais refacturés, relance proposée" do
     actor = DemoSpec.atelier.actor
     rejections = Inv.payment_rejections(actor)
     rejections.size.should eq(1)
