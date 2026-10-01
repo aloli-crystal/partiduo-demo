@@ -82,6 +82,29 @@ describe PartiduoDemo::Atelier do
       summary.delivery_notes.all? { |note| Inv.document(actor, note.id).status == "invoiced" }.should be_true
       Acc.entries(actor, Acc::EntryQuery.new(source: "invoice:#{summary.id}")).should_not be_empty
       Inv.monthly_proposals(actor).map(&.customer_card_id).should contain(customer.id)
+      # Retour d'une étagère le mois dernier, déduit de sa récapitulative
+      # proposée (D-INV3-003).
+      proposal = Inv.monthly_proposals(actor).find! { |row| row.customer_card_id == customer.id }
+      draft = Inv.document(actor, proposal.invoice_id || raise "proposition sans facture")
+      draft.kind.should eq("invoice")
+      draft.return_notes.size.should eq(1)
+      draft.lines.select(&.return_note_id).select(&.priced?).map(&.quantity).should eq([BigDecimal.new(-1)])
+      Inv.document(actor, draft.return_notes.first.id).status.should eq("issued")
     end
+  end
+
+  it "enregistre un chèque impayé : facture de nouveau due, contre-passation, frais refacturés, relance proposée" do
+    actor = DemoSpec.atelier.actor
+    rejections = Inv.payment_rejections(actor)
+    rejections.size.should eq(1)
+    rejection = rejections.first
+    rejection.open?.should be_true
+    rejection.fees.should eq(BigDecimal.new(15))
+    Inv.document(actor, rejection.document_id).totals.amount_due.should eq(rejection.amount)
+    Acc.entries(actor, Acc::EntryQuery.new(source: "payment_rejection:#{rejection.id}")).size.should eq(1)
+    Acc.entries(actor, Acc::EntryQuery.new(source: "payment_rejection:#{rejection.id}:fees")).size.should eq(1)
+    fees = Inv.document(actor, rejection.fees_invoice_id || raise "sans facture de frais")
+    fees.draft?.should be_true
+    rejection.reminder_id.should_not be_nil
   end
 end

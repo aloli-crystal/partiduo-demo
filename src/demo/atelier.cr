@@ -41,7 +41,8 @@ module PartiduoDemo
         "Tableau de bord : chiffre d'affaires, trésorerie, « À traiter » (relances, justificatifs, factures reçues)",
         "Devis et factures (menu Facturation) : devis accepté → facture d'acompte → facture finale, avoirs, relances",
         "Bons à facturer (menu Facturation) : Décoration Val de Loire, client livré plusieurs fois par mois et facturé " \
-        "en fin de mois (facture récapitulative) ; encours maximum HT sur sa fiche, proche du plafond",
+        "en fin de mois (facture récapitulative, retour d'une étagère déduit) ; encours maximum HT sur sa fiche",
+        "Paiement rejeté : un chèque impayé (« À traiter », facture de nouveau due, frais refacturés, relance proposée)",
         "Comptabilité : journaux, balance, grand livre, lettrage, rapprochement bancaire, TVA (CA3 mensuelles closes)",
         "Analytique (activités), stock (dépôt de l'atelier), justificatifs à traiter (tickets photographiés)",
         "Extensions : CRM (/ext/CRM/pipeline), modèles de factures (/ext/MODELES/), EINV (/ext/EINV/), " \
@@ -190,6 +191,10 @@ module PartiduoDemo
           address: address(party.line1, party.postcode, party.city))), "fournisseur #{party.code}")
       end
 
+      # Taux hors champ de la TVA (catégorie O) : frais d'impayé refacturés,
+      # indemnité non soumise à la TVA (D-INV3-010).
+      ok(Vat.create_rate(system, Vat::RateInput.new(code: "HC", label: "Hors champ de la TVA", rate: d("0"), category: "O",
+        exemption_code: "VATEX-EU-O", exemption_reason: "Indemnité hors champ de la TVA")), "taux hors champ")
       normal = rate("NOR")
       SALE_ITEMS.each do |(item_code, name, unit, price, account_number, _, _)|
         item = ok(Cards.create_card(system, Cards::CardInput.new(category_id: category("SALE"), name: name, code: item_code,
@@ -278,19 +283,28 @@ module PartiduoDemo
     # fin de mois planifiée (`month_end`, comme la tâche quotidienne de
     # l'instance) ; la facture récapitulative de l'avant-dernier mois est
     # émise et envoyée d'un clic le 1er, puis réglée ; celle du mois dernier
-    # reste proposée dans « À traiter » ; les bons du mois en cours restent à
-    # facturer.
+    # reste proposée dans « À traiter », une étagère rapportée le 25 (bon de
+    # retour, entrée en stock) y venant en déduction (D-INV3-003) ; les bons
+    # du mois en cours restent à facturer.
     private def monthly_deliveries(current : Int32, month : Int32) : Nil
       return unless current == year
       age = real_today.month - month
       return unless 0 <= age <= 2
       customer = card(MONTHLY_CUSTOMER.code)
+      first_delivery = nil.as(Int64?)
       {4, 13, 21}.each_with_index do |day, rank|
         agenda.at(date(current, month, day)) do
           draft = ok(Inv.create_document(actor, Inv::DocumentInput.new(kind: "delivery_note", customer_card_id: customer.id,
             lines: [line("ETAG", 3), line("POSE", 4)], notes: "Livraison n° #{rank + 1} du mois", operation_category: "mixed")),
             "bon de livraison pour #{customer.code}")
-          ok(Inv.issue(actor, draft.id, Inv::IssueInput.new(today)), "émission du bon de livraison")
+          issued = ok(Inv.issue(actor, draft.id, Inv::IssueInput.new(today)), "émission du bon de livraison")
+          first_delivery ||= issued.id
+        end
+      end
+      if age == 1
+        agenda.at(date(current, month, 25)) do
+          origin = first_delivery
+          return_shelf(origin) if origin
         end
       end
       return if age == 0
@@ -342,6 +356,17 @@ module PartiduoDemo
         pay_later(invoice, 30)
       end
       agenda.at(date(current, month, 8)) { quote(current, month, index) }
+    end
+
+    # Bon de retour d'une étagère au vernis rayé, tiré du bon de livraison
+    # (entrée en stock à l'émission) : déduit de la facture récapitulative du
+    # mois.
+    private def return_shelf(delivery_id : Int64) : Nil
+      draft = ok(Inv.transform(actor, delivery_id, Inv::TransformInput.new("return_note")), "bon de retour")
+      ok(Inv.update_document(actor, draft.id, Inv::DocumentInput.new(kind: "return_note",
+        customer_card_id: draft.customer_card_id, lines: [line("ETAG", 1)], return_reason: "damaged",
+        notes: "Étagère au vernis rayé, reprise", operation_category: "goods")), "motif du retour")
+      ok(Inv.issue(actor, draft.id, Inv::IssueInput.new(today)), "émission du bon de retour")
     end
 
     private def line(item_code : String, quantity : Int32) : Inv::LineInput
@@ -696,12 +721,32 @@ module PartiduoDemo
 
     private def after_today : Nil
       say "Relances, facturation électronique, télédéclarations, CRM, modèles de factures"
+      rejected_payment
       reminders
       ok(Einvoicing::Api.synchronize(actor), "synchronisation avec la plateforme")
       ok(Einvoicing::Api.synchronize(actor), "relevé des accusés de la plateforme")
       teledec
       CrmSeed.load(self)
       modeles
+    end
+
+    # Chèque impayé (D-INV3-007) : le règlement le plus récent d'un client
+    # professionnel (hors client mensuel) revient rejeté pour provision
+    # insuffisante ; l'encaissement est contre-passé en banque, les frais
+    # (15 €) passés en services bancaires et refacturés au client par un
+    # brouillon de facture hors champ de la TVA ; relance proposée.
+    private def rejected_payment : Nil
+      business = CUSTOMERS.select(&.nature.==("business")).map { |party| card(party.code).id }
+      paid = Inv.documents(actor, Inv::DocumentQuery.new(kind: "invoice", status: "paid", limit: 500))
+        .select { |document| business.includes?(document.customer_card_id) }
+      candidates = paid.compact_map do |document|
+        payment = Inv.payments(actor, document.id).reject(&.rejected?).max_by?(&.paid_on) || next
+        payment if payment.paid_on < today
+      end
+      payment = candidates.max_by?(&.paid_on) || return
+      ok(Inv.reject_payment(actor, payment.id, Inv::PaymentRejectionInput.new(rejected_on: today,
+        reason: "insufficient_funds", reason_text: "Chèque revenu impayé", fees: d("15"), rebill_fees: true,
+        fees_vat_rate_id: rate("HC"))), "rejet du règlement de #{payment.document_number}")
     end
 
     private def reminders : Nil
