@@ -109,7 +109,8 @@ http://liberal.partiduo.localhost:8302/
 assujettie à la TVA
 |Recettes et dépenses ventilées par rubrique (part privée du véhicule),
 prélèvements, immobilisations amorties, écritures générées en Comptabilité,
-2035 de l'exercice précédent transmise au TELEDEC simulé.
+exercice précédent clôturé et sa 2035 transmise au TELEDEC simulé
+(verrouillé), exercice en cours ouvert.
 |===
 
 Utilisateurs : `atelier` a une gérante (profil administrateur), un
@@ -152,7 +153,9 @@ achats, URSSAF (`/ext/URSSAF/` et écran de déclaration), 2042-C-PRO, seuils.
 
 `liberal` ::
 Tableau de bord simplifié, recettes et dépenses par rubrique, livre-journal,
-immobilisations et amortissements, 2035 (édition PDF), TELEDEC.
+immobilisations et amortissements, 2035 (édition PDF), TELEDEC ;
+« Clôturer l'exercice » et « Rouvrir l'exercice » sur l'exercice en cours,
+exercice précédent verrouillé (cadenas).
 
 L'interface suit le thème clair ou sombre du système ; elle s'utilise aussi
 au téléphone (même adresse, depuis ce poste).

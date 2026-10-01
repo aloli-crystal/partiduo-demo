@@ -5,8 +5,9 @@ module PartiduoDemo
   # (profession libérale fictive) à Blois, bénéfices non commerciaux
   # (déclaration 2035), non assujettie à la TVA. Livre-journal des recettes
   # et dépenses ventilées par rubrique (part privée du véhicule),
-  # immobilisations amorties, 2035 de l'exercice complet transmise au
-  # TELEDEC simulé, écritures générées en Comptabilité.
+  # immobilisations amorties, exercice complet clôturé puis sa 2035
+  # transmise au TELEDEC simulé (exercice verrouillé, DECISIONS D-LIB5-001),
+  # exercice en cours ouvert, écritures générées en Comptabilité.
   class LiberalDossier < Dossier
     def code : String
       "liberal"
@@ -37,6 +38,8 @@ module PartiduoDemo
         "Recettes et dépenses ventilées par rubrique de la 2035 (part privée du véhicule), livre-journal",
         "Immobilisations et amortissements (table de massage, ordinateur), 2035-A et 2035-B, édition PDF",
         "TELEDEC simulé (/ext/TELEDEC/) : liasse BNC de l'exercice précédent transmise et accusée",
+        "Exercice précédent clôturé puis verrouillé par la transmission de sa 2035 (cadenas, plus de « Rouvrir l'exercice ») ; " \
+        "exercice en cours ouvert : « Clôturer l'exercice », puis « Rouvrir l'exercice » (livre-journal, recettes, dépenses, 2035)",
         "Préférences de chaque utilisateur (menu de l'utilisateur) : « Recettes et dépenses » ou « Comptabilité », gardée d'une session à l'autre",
       ]
     end
@@ -114,9 +117,12 @@ module PartiduoDemo
       end
     end
 
-    # 2035 de l'exercice complet, transmise au TELEDEC simulé.
+    # 2035 de l'exercice complet : exercice clôturé (la 2035 se transmet sur
+    # un exercice clôturé, D-LIB5-003), puis transmise au TELEDEC simulé, ce
+    # qui le verrouille.
     private def teledec : Nil
       previous = fiscal_year(year - 1)
+      ok(Api::Liberal.close_year(actor, year - 1), "clôture de l'exercice #{year - 1}")
       ok(Teledec::Api.update_settings(actor, Teledec::Api::SettingsInput.new("bnc", "none")), "paramètres TELEDEC")
       ok(Teledec::Api.save_credentials(actor, Teledec::Api::CredentialsInput.new(Teledec::SimulatedTeledec::LOGIN,
         Teledec::SimulatedTeledec::API_KEY, "sandbox", "cabinet@riviere-kine.test", "90372816000016")),
